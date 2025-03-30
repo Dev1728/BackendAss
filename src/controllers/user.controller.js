@@ -27,58 +27,63 @@ const generateAccessAndRefreshTokens = async(userId)=>{
 }
 
 
-const registerUser = asyncHandler(async (req,res) =>{
-       
-        const {fullName,email,username,password} =req.body
-       // console.log("email",email);
+const createProfile = async (req, res) => {
+    try {
+        const { name, email, address, password } = req.body;
+        console.log("Request Body:", req.body); 
 
-        if([fullName,email,username,password].some((field)=>field?.trim() === "")){
-            throw new ApiError(400,"All fields are required");
+        if ([name, email, address, password].some((field) => field?.trim() === "")) {
+            throw new ApiError(400, "All fields are required");
         }
-        if(!email.includes('@')){
-            throw new ApiError(400,"Email is not correct");
+        if (!email.includes('@')) {
+            throw new ApiError(400, "Email is not correct");
         }
 
-        const existedUser = await User.findOne({
-            $or:[{username},{email}]
-        })
+        const existedUser = await User.findOne({ email });
+        console.log("Existed User:", existedUser); 
 
-        if(existedUser){
-            throw new ApiError(409,"User with email or username Already exists");
+        if (existedUser) {
+            throw new ApiError(409, "User with email or username Already exists");
         }
-        
 
-       const user =  await User.create({
-            fullName,
+        const user = await User.create({
+            name,
             email,
             password,
-            username:username.toLowerCase()
-        })
-       const createdUser = await User.findById(user._id).select(
-            "-password -refreshToken"
-       );
+            address,
+        });
+        console.log("Created User:", user); 
 
-       if(!createdUser){
-            throw new ApiError(500,"Something went wrong while registering the user")
-       }
+        const token = user.generateAccessToken();
+        console.log("Generated Token:", token); 
 
-       return res.status(201).json( new ApiResponse(200,createdUser,"User registed successfully"))
-     
-})
+
+        const createdUser = await User.findById(user._id).select("-password ");
+        console.log("Created User (No Password):", createdUser); 
+
+        if (!createdUser) {
+            throw new ApiError(500, "Something went wrong while registering the user");
+        }
+
+        return res.status(201).json(new ApiResponse(200, createdUser, "User registed successfully"));
+    } catch (error) {
+        console.error("Error in createProfile:", error);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
 
 const loginUser= asyncHandler(async(req,res)=>{
     
 
-    const {email,username,password} =req.body;
+    const {email,password} =req.body;
     //console.log(email);
 
-    if(!username && !email ){
-        throw new ApiError(400,"username or email is required"); 
+    if(!password || !email ){
+        throw new ApiError(400,"password or email is required"); 
     }
 
-    const user =await User.findOne({
-        $or:[{username},{email}]
-    })
+    const user =await User.findOne({email})
+    
     if(!user){
         throw new ApiError(404,"user does not Exist");
     }
@@ -183,94 +188,69 @@ const refershedAceessToken = asyncHandler(async(req,res)=>{
 
 
 
-const forgotPassword = asyncHandler(async (req, res) => {
+const viewUserProfile = async(req,res)=>{
     try {
-        const { email } = req.body;
+        const {profileId} = req.params;
+    
+        if(!profileId){
+            return res.status(404).json({success:false,message:"profile ID is required"});
+        }
+    
+        const userProfile = await User.findById(profileId);
+        if(!userProfile){
+            return res.status(404).json({success:false,message:"profile not found "});
+        }
+    
+        return res.status(200).json({success:true,data:userProfile ,message:"user profile successfully retreive"});
+    } catch (error) {
+        console.log(error.message);
+        return res.status(500).json({success:false,message:"Internal serve error"});
+    }
+}
 
-       
-        const user = await User.findOne({ email });
-        if (!user) {
-            throw new ApiError(404, "User not found or Email is incorrect");
+const updateProfile = async(req,res)=>{
+    try {
+        const {profileId} = req.params;
+        
+
+        if(!profileId){
+            return res.status(401).json({success:false,message:"profile ID not found "});
         }
 
         
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+        const updateData = req.body;
+  
+        if(!Object.keys(updateData).length=== 0 ){
+            return res.status(400).json({success:false,message:"At least one field is required"});
+        }
 
-        //console.log(hashedToken)
+        const updateUser =await User.findByIdAndUpdate(
+            profileId,
+            {$set:updateData},
+            {new:true,runValidators:true}
+        ).select("-password")
+
+        if(!updateUser){
+            return res.status(404).json({success:false,message:"UserProfile not Found"});
+        }
+
+        return res.status(200).json({success:true,data:updateUser,message:"UserProfile updated Successfully."})
+     
+    } catch (error) {
+   
+        console.error(error);
+        return res.status(500).json({ success: false, message: "Internal Server Error" });
       
-        user.resetPasswordToken = hashedToken;
-        user.resetPasswordExpires = Date.now() + 3600000; 
-        await user.save({ validateBeforeSave: false });
-
-        // Send email with reset link
-        const resetUrl = `http://localhost:8000/api/v1/users/reset-password/${resetToken}`;
-
-        const transporter = nodemailer.createTransport({
-            service: 'Gmail',
-            auth: { user:"dj64360@gmail.com", pass:"exkj mpvu ffyg tcbj" }
-        });
-
-        await transporter.sendMail({
-            to: user.email,
-            subject: 'Password Reset Request',
-            html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. This link is valid for 1 hour.</p>`
-        });
-
-        //console.log(resetUrl);
-
-        return res.status(200).json(new ApiResponse(200, "Password reset link sent to email"));
-
-    } catch (error) {
-        throw new ApiError(500, error?.message || "Internal server error");
     }
-});
-
-
-const resetPassword = asyncHandler(async (req, res) => {
-    try {
-        const { token } = req.params;
-        const { newPassword } = req.body;
-
-        if (!newPassword || newPassword.trim() === "") {
-            throw new ApiError(400, "New password is required");
-        }
-
-        
-        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-        // console.log(hashedToken);
-        // console.log(token);
-        const user = await User.findOne({
-            resetPasswordToken: hashedToken,
-            resetPasswordExpires: { $gt: Date.now() } // Ensure token is not expired
-        });
-        //console.log(user)
-        if (!user) {
-            throw new ApiError(400, "Invalid or expired token");
-        }
-
-       
-        user.password = await bcrypt.hash(newPassword, 10);
-
-       
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpires = undefined;
-        await user.save();
-
-        return res.status(200).json(new ApiResponse(200, "Password has been reset successfully"));
-
-    } catch (error) {
-        throw new ApiError(500, error?.message || "Internal Server Error");
-    }
-});
+}
 
 
 
 export {
-    registerUser,
+    createProfile,
     loginUser,
     logOut,
     refershedAceessToken,
-    forgotPassword,
-    resetPassword
+    updateProfile,
+    viewUserProfile
 };

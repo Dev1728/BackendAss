@@ -4,13 +4,10 @@ import jwt from 'jsonwebtoken'
 
 const userSchema = new mongoose.Schema(
     {
-        username:{
+        name:{
             type:String,
             required:true,
-            unique:true,
-            lowercase:true,
             trim:true,
-            index:true
         },
         email:{
             type:String,
@@ -19,27 +16,25 @@ const userSchema = new mongoose.Schema(
             lowercase:true,
             trim:true,
         },
-        fullName:{
-            type:String,
-            required:true,
-            trim:true,
-            index:true
-        },
         password:{
             type:String,
             required:[true,"password is required"]
         },
+        address:{
+            type:String,
+            required:true
+        },
+        bio:{
+            type:String,
+            default:''
+        },
+        profilePic:{
+            type:String,
+            default:''
+        },
         refreshToken:{
             type:String
         },
-        resetPasswordToken:{
-            type:String,
-            default:null
-        },
-        resetPasswordExpires:{
-            type:Date,
-            default:null
-        }
 
     },
     {timestamps:true}
@@ -62,8 +57,7 @@ userSchema.methods.generateAccessToken= function () {
     {
         _id:this._id,
         email:this.email,
-        username:this.username,
-        fullName:this.fullName
+        name:this.name
     },
     process.env.ACCESS_TOKEN_SECRET,
     {
